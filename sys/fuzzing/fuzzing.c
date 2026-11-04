@@ -60,10 +60,12 @@ fuzzing_read_packet(int fd, gnrc_pktsnip_t *pkt)
     }
 
     if (gnrc_pktbuf_realloc_data(pkt, rsiz)) {
+        free(input);
         return -ENOMEM;
     }
 
     memcpy(pkt->data, input, rsiz);
+    free(input);
 
     gnrc_pktbuf_fuzzptr = pkt;
     return 0;
@@ -73,6 +75,7 @@ uint8_t *
 fuzzing_read_bytes(int fd, size_t *size)
 {
     uint8_t *buffer = NULL;
+    uint8_t *tmp;
     ssize_t r;
     size_t csiz, rsiz;
 
@@ -89,19 +92,34 @@ fuzzing_read_bytes(int fd, size_t *size)
         rsiz -= r;
 
         if (rsiz == 0) {
-            if ((buffer = realloc(buffer, csiz + FUZZING_BSTEP)) == NULL) {
+            tmp = realloc(buffer, csiz + FUZZING_BSTEP);
+            if (tmp == NULL) {
+                int err = errno;
+                free(buffer);
+                errno = err;
                 return NULL;
             }
+            buffer = tmp;
             rsiz += FUZZING_BSTEP;
         }
     }
     if (r == -1) {
+        int err = errno;
+        free(buffer);
+        errno = err;
         return NULL;
     }
 
     /* shrink buffer to actual size */
-    if ((buffer = realloc(buffer, csiz)) == NULL) {
-        return NULL;
+    if (csiz > 0) {
+        tmp = realloc(buffer, csiz);
+        if (tmp == NULL) {
+            int err = errno;
+            free(buffer);
+            errno = err;
+            return NULL;
+        }
+        buffer = tmp;
     }
 
     *size = csiz;
